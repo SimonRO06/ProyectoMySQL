@@ -974,7 +974,7 @@ JOIN citiesormunicipalities cm ON c.city_id = cm.code
 GROUP BY pro.id, c.id, cm.code
 ORDER BY cm.name, pro.name;
 
--- Consultas SQL Especializadas 2 // VERIFICAR -> DA EMPTY
+-- Consultas SQL Especializadas 2 // TERMINADO
 
 SELECT c.name AS Cliente, COUNT(qp.product_id) AS Cantidad_Calificaciones
 FROM quality_products qp
@@ -1019,7 +1019,7 @@ GROUP BY pro.id
 HAVING cantidad_clientes > 10
 ORDER BY cantidad_clientes DESC;
 
--- Consultas SQL Especializadas 7
+-- Consultas SQL Especializadas 7 // TERMINADO
 
 SELECT cm.name AS Ciudad, cat.description AS Categoria, c.name AS Compañia, c.cellphone AS Telefono, c.email AS Email
 FROM companies c
@@ -1027,9 +1027,11 @@ JOIN citiesormunicipalities cm ON c.city_id = cm.code
 JOIN categories cat ON c.category_id = cat.id
 ORDER BY cm.name, cat.description, c.name;
 
--- Consultas SQL Especializadas 8 // PENDIENTE
+-- Consultas SQL Especializadas 8 // TERMINADO
 
-
+SELECT Producto, Ciudad, Calificacion
+FROM (SELECT pro.name AS Producto, ci.name AS Ciudad, qp.rating AS Calificacion FROM quality_products qp JOIN products pro ON qp.product_id = pro.id JOIN customers cu ON qp.customer_id = cu.id JOIN citiesormunicipalities ci ON cu.city_id = ci.code) AS subconsulta
+ORDER BY Ciudad;
 
 -- Consultas SQL Especializadas 9 // TERMINADO
 
@@ -1315,85 +1317,358 @@ WHERE c.msisactive = TRUE AND c.id NOT IN (SELECT DISTINCT customer_id FROM favo
 
 ```sql
 
--- Procedimientos Almacenados 1
+-- Procedimientos Almacenados 1 // TERMINADO
+
+DELIMITER $$
+CREATE PROCEDURE sp_registrar_calificacion(
+    IN p_product_id INT,
+    IN p_customer_id INT,
+    IN p_company_id VARCHAR(20),
+    IN p_poll_id INT,
+    IN p_rating DOUBLE
+)
+BEGIN
+    DECLARE v_avg_rating DOUBLE;ç
+    INSERT INTO quality_products (product_id, customer_id, company_id, poll_id, daterating, rating)
+    VALUES (p_product_id, p_customer_id, p_company_id, p_poll_id, NOW(), p_rating);
+    SELECT AVG(rating) INTO v_avg_rating 
+    FROM quality_products 
+    WHERE product_id = p_product_id;
+    SELECT 'Calificación registrada exitosamente' AS mensaje, v_avg_rating AS nuevo_promedio;
+END $$
+DELIMITER ;
+
+-- Procedimientos Almacenados 2 // PENDIENTE
 
 
 
--- Procedimientos Almacenados 2
+-- Procedimientos Almacenados 3 // TERMINADO
 
+DELIMITER $$
+CREATE PROCEDURE sp_agregar_favorito(
+    IN p_customer_id INT,
+    IN p_product_id INT
+)
+BEGIN
+    DECLARE v_exists INT;
+    SELECT COUNT(*) INTO v_exists 
+    FROM favorites 
+    WHERE customer_id = p_customer_id AND product_id = p_product_id;
+    
+    IF v_exists = 0 THEN
+        INSERT INTO favorites (customer_id, product_id)
+        VALUES (p_customer_id, p_product_id);
+        SELECT 'Producto añadido a favoritos' AS mensaje;
+    ELSE
+        SELECT 'El producto ya está en tus favoritos' AS mensaje;
+    END IF;
+END $$
+DELIMITER ;
 
+-- Procedimientos Almacenados 4 // TERMINADO
 
--- Procedimientos Almacenados 3
-
-
-
--- Procedimientos Almacenados 4
-
-
+DELIMITER $$
+CREATE PROCEDURE sp_generar_resumen_calificaciones(
+    IN p_year INT,
+    IN p_month INT
+)
+BEGIN
+    DROP TEMPORARY TABLE IF EXISTS temp_resumen_calificaciones;
+    CREATE TEMPORARY TABLE temp_resumen_calificaciones (
+        empresa_id VARCHAR(20),
+        empresa_nombre VARCHAR(80),
+        mes INT,
+        año INT,
+        total_calificaciones INT,
+        promedio_calificacion DECIMAL(3,2),
+        producto_mas_calificado VARCHAR(60)
+    );
+    INSERT INTO temp_resumen_calificaciones
+    SELECT c.id AS empresa_id, c.name AS empresa_nombre, p_month AS mes, p_year AS año, COUNT(qp.rating) AS total_calificaciones, AVG(qp.rating) AS promedio_calificacion, 
+    	(SELECT p.name FROM quality_products qp2
+         JOIN products p ON qp2.product_id = p.id
+         WHERE qp2.company_id = c.id
+         AND YEAR(qp2.daterating) = p_year
+         AND MONTH(qp2.daterating) = p_month
+         GROUP BY p.name
+         ORDER BY COUNT(*) DESC
+         LIMIT 1) AS producto_mas_calificado
+    FROM quality_products qp
+    JOIN companies c ON qp.company_id = c.id
+    WHERE YEAR(qp.daterating) = p_year AND MONTH(qp.daterating) = p_month
+    GROUP BY c.id, c.name;
+    SELECT * FROM temp_resumen_calificaciones;
+END $$
+DELIMITER ;
 
 -- Procedimientos Almacenados 5
 
+DELIMITER $$
+CREATE PROCEDURE sp_beneficios_activos_por_membresia()
+BEGIN
+    SELECT m.name AS membresia, GROUP_CONCAT(b.descriptions SEPARATOR ', ') AS beneficios_activos, COUNT(b.id) AS cantidad_beneficios
+    FROM membershipbenefits mb
+    JOIN memberships m ON mb.membership_id = m.id
+    JOIN benefits b ON mb.benefit_id = b.id
+    JOIN membershipperiods mp ON mb.membership_id = mp.membership_id AND mb.period_id = mp.period_id
+    GROUP BY m.id, m.name
+    ORDER BY cantidad_beneficios DESC;
+END $$
+DELIMITER ;
 
+-- Procedimientos Almacenados 6 // TERMINADO
 
--- Procedimientos Almacenados 6
-
-
+DELIMITER $$
+CREATE PROCEDURE sp_eliminar_productos_huérfanos()
+BEGIN
+    DECLARE v_count INT;
+    SELECT COUNT(*) INTO v_count
+    FROM products p
+    WHERE p.id NOT IN (SELECT product_id FROM companyproducts)
+    AND p.id NOT IN (SELECT product_id FROM quality_products);
+    DELETE FROM products
+    WHERE id NOT IN (SELECT product_id FROM companyproducts)
+    AND id NOT IN (SELECT product_id FROM quality_products);
+    SELECT CONCAT(v_count, ' productos huérfanos eliminados') AS resultado;
+END $$
+DELIMITER ;
 
 -- Procedimientos Almacenados 7
 
 
 
--- Procedimientos Almacenados 8
+-- Procedimientos Almacenados 8 // TERMINADO
 
+DELIMITER //
+CREATE PROCEDURE sp_validar_inconsistencias_calificaciones()
+BEGIN
+    CREATE TABLE IF NOT EXISTS errores_log (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+        tipo_error VARCHAR(50),
+        descripcion TEXT,
+        datos_afectados TEXT
+    );
+    INSERT INTO errores_log (tipo_error, descripcion, datos_afectados)
+    SELECT 'Inconsistencia en calificaciones', 'Calificación en rates sin entrada correspondiente en quality_products', CONCAT('customer_id: ', r.customer_id, ', company_id: ', r.company_id, ', poll_id: ', r.poll_id)
+    FROM rates r
+    LEFT JOIN quality_products qp ON r.customer_id = qp.customer_id AND r.company_id = qp.company_id AND r.poll_id = qp.poll_id
+    WHERE qp.customer_id IS NULL;
+    SELECT CONCAT(ROW_COUNT(), ' inconsistencias registradas en el log') AS resultado;
+END //
+DELIMITER ;
 
+-- Procedimientos Almacenados 9 // TERMINADO
 
--- Procedimientos Almacenados 9
-
-
+DELIMITER $$
+CREATE PROCEDURE sp_asignar_beneficio_a_audiencia(
+    IN p_benefit_id INT,
+    IN p_audience_id INT
+)
+BEGIN
+    DECLARE v_exists INT;
+    SELECT COUNT(*) INTO v_exists 
+    FROM audiencebenefits 
+    WHERE benefit_id = p_benefit_id AND audience_id = p_audience_id;
+    
+    IF v_exists = 0 THEN
+        INSERT INTO audiencebenefits (audience_id, benefit_id)
+        VALUES (p_audience_id, p_benefit_id);
+        SELECT 'Beneficio asignado exitosamente a la audiencia' AS mensaje;
+    ELSE
+        SELECT 'Esta asignación ya existe' AS mensaje;
+    END IF;
+END $$
+DELIMITER ;
 
 -- Procedimientos Almacenados 10
 
+DELIMITER $$
+CREATE PROCEDURE sp_activar_membresias_vencidas()
+BEGIN
+    UPDATE membershipperiods
+    SET status = 'ACTIVA'
+    WHERE end_date < CURDATE()
+    AND pago_confirmado = TRUE
+    AND status != 'ACTIVA';
+    SELECT CONCAT(ROW_COUNT(), ' membresías reactivadas') AS resultado;
+END $$
+DELIMITER ;
 
+-- Procedimientos Almacenados 11 // TERMINADO
+DELIMITER $$
+CREATE PROCEDURE sp_listar_favoritos_con_rating (
+  IN p_customer_id INT
+)
+BEGIN
+  SELECT 
+    df.product_id,
+    p.name AS nombre_producto,
+    IFNULL(AVG(r.rating), 0) AS promedio_rating
+  FROM favorites f
+  JOIN details_favorites df ON df.favorite_id = f.id
+  JOIN products p ON p.id = df.product_id
+  LEFT JOIN rates r 
+    ON r.customer_id = f.customer_id 
+   AND r.company_id = f.company_id 
+   AND r.poll_id IN (
+      SELECT poll_id 
+      FROM quality_products 
+      WHERE product_id = df.product_id AND customer_id = f.customer_id
+   )
+  WHERE f.customer_id = p_customer_id
+  GROUP BY df.product_id, p.name;
+END$$
+DELIMITER ;
 
--- Procedimientos Almacenados 11
+-- Procedimientos Almacenados 12 // TERMINADO
 
+DELIMITER $$
+CREATE PROCEDURE sp_registrar_encuesta_con_preguntas(
+    IN p_name VARCHAR(80),
+    IN p_description TEXT,
+    IN p_isactive BOOLEAN,
+    IN p_categorypoll_id INT
+)
+BEGIN
+    DECLARE v_poll_id INT;
+    INSERT INTO polls (name, description, isactive, categorypoll_id)
+    VALUES (p_name, p_description, p_isactive, p_categorypoll_id);
+    
+    SET v_poll_id = LAST_INSERT_ID();
+    SELECT CONCAT('Encuesta registrada con ID ', v_poll_id) AS resultado;
+END $$
+DELIMITER ;
 
+-- Procedimientos Almacenados 13 // TERMINADO
 
--- Procedimientos Almacenados 12
-
-
-
--- Procedimientos Almacenados 13
-
-
+DELIMITER $$
+CREATE PROCEDURE sp_limpiar_favoritos_antiguos()
+BEGIN
+    DELETE f FROM favorites f
+    LEFT JOIN quality_products qp ON f.product_id = qp.product_id AND f.customer_id = qp.customer_id
+    WHERE qp.product_id IS NULL
+    AND f.id IN (
+        SELECT fd.favorite_id 
+        FROM details_favorites fd
+        WHERE fd.created_at < DATE_SUB(NOW(), INTERVAL 1 YEAR)
+    );
+    
+    SELECT CONCAT(ROW_COUNT(), ' favoritos antiguos eliminados') AS resultado;
+END $$
+DELIMITER ;
 
 -- Procedimientos Almacenados 14
 
+DELIMITER $$
+CREATE PROCEDURE sp_asociar_beneficios_por_audiencia(IN p_audience_id INT)
+BEGIN
+    -- Asignar beneficios básicos (ejemplo con IDs fijos)
+    INSERT INTO audiencebenefits (audience_id, benefit_id)
+    SELECT p_audience_id, id 
+    FROM benefits
+    WHERE id IN (1, 2, 3, 4) -- IDs de beneficios básicos
+    AND NOT EXISTS (
+        SELECT 1 FROM audiencebenefits ab 
+        WHERE ab.audience_id = p_audience_id 
+        AND ab.benefit_id = benefits.id
+    );
+    
+    SELECT CONCAT('Asignados ', ROW_COUNT(), ' beneficios a la audiencia') AS resultado;
+END $$
+DELIMITER ;
+
+-- Procedimientos Almacenados 15 // PENDIENTE
 
 
--- Procedimientos Almacenados 15
 
+-- Procedimientos Almacenados 16 // TERMINADO
 
+DELIMITER $$
+CREATE PROCEDURE sp_activar_nueva_encuesta(
+    IN p_name VARCHAR(80),
+    IN p_description TEXT,
+    IN p_categorypoll_id INT
+)
+BEGIN
+    UPDATE polls SET isactive = FALSE;
+    INSERT INTO polls (name, description, isactive, categorypoll_id)
+    VALUES (p_name, p_description, TRUE, p_categorypoll_id);
+    SELECT CONCAT('Encuesta activa creada con ID ', LAST_INSERT_ID()) AS resultado;
+END $$
+DELIMITER ;
 
--- Procedimientos Almacenados 16
+-- Procedimientos Almacenados 17 // TERMINADO
 
-
-
--- Procedimientos Almacenados 17
-
-
+DELIMITER $$
+CREATE PROCEDURE sp_actualizar_unidad_medida(
+    IN p_product_id INT,
+    IN p_new_unit_id INT
+)
+BEGIN
+    DECLARE v_has_sales INT DEFAULT 0;
+    SELECT COUNT(*) INTO v_has_sales
+    FROM sales
+    WHERE product_id = p_product_id;
+    
+    IF v_has_sales = 0 THEN
+        UPDATE companyproducts
+        SET unitmeasure_id = p_new_unit_id
+        WHERE product_id = p_product_id;
+        SELECT 'Unidad de medida actualizada' AS mensaje;
+    ELSE
+        SELECT 'Error: Producto tiene ventas registradas' AS mensaje;
+    END IF;
+END $$
+DELIMITER ;
 
 -- Procedimientos Almacenados 18
 
+DELIMITER $$
+CREATE PROCEDURE sp_recalcular_promedios_calidad()
+BEGIN
+    UPDATE products p
+    SET p.average_rating = (
+        SELECT IFNULL(AVG(rating), 0)
+        FROM quality_products qp
+        WHERE qp.product_id = p.id
+    );
+    SELECT CONCAT('Promedios actualizados para ', ROW_COUNT(), ' productos') AS resultado;
+END $$
+DELIMITER ;
 
+-- Procedimientos Almacenados 19 // TERMINADO
 
--- Procedimientos Almacenados 19
+DELIMITER $$
+CREATE PROCEDURE sp_validar_integridad_encuestas()
+BEGIN
+    SELECT 'Registros en rates con poll_id inválido:' AS mensaje;
+    SELECT * FROM rates r
+    WHERE NOT EXISTS (SELECT 1 FROM polls p WHERE p.id = r.poll_id);
+    SELECT 'Registros en quality_products con poll_id inválido:' AS mensaje;
+    SELECT * FROM quality_products qp
+    WHERE NOT EXISTS (SELECT 1 FROM polls p WHERE p.id = qp.poll_id);
+END $$
+DELIMITER ;
 
+-- Procedimientos Almacenados 20 // TERMINADO
 
-
--- Procedimientos Almacenados 20
-
-
+DELIMITER $$
+CREATE PROCEDURE sp_top10_productos_por_ciudad()
+BEGIN
+    SELECT ciudad, producto, calificaciones
+    FROM (
+        SELECT cm.name AS ciudad, p.name AS producto, COUNT(qp.product_id) AS calificaciones, @rank := IF(@current_ciudad = cm.name, @rank + 1, 1) AS ranking, @current_ciudad := cm.name
+        FROM (SELECT @rank := 0, @current_ciudad := '') AS vars, quality_products qp
+        JOIN companies c ON qp.company_id = c.id
+        JOIN citiesormunicipalities cm ON c.city_id = cm.code
+        JOIN products p ON qp.product_id = p.id
+        GROUP BY cm.name, p.name
+        ORDER BY cm.name, calificaciones DESC
+    ) AS ranked
+    WHERE ranking <= 10;
+END $$
+DELIMITER ;
 
 ```
 
@@ -1585,7 +1860,6 @@ BEFORE DELETE ON citiesormunicipalities
 FOR EACH ROW
 BEGIN
     DECLARE v_count INT;
-    
     SELECT COUNT(*) INTO v_count
     FROM companies
     WHERE city_id = OLD.code;
