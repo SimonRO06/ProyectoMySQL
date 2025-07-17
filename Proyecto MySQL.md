@@ -211,6 +211,43 @@ CREATE TABLE IF NOT EXISTS membershipbenefits (
     CONSTRAINT FK_benefit_id_membershipbenefits FOREIGN KEY (benefit_id) REFERENCES benefits(id)
 ) ENGINE = INNODB;
 
+-- NUEVAS TABLAS
+
+CREATE TABLE auditorias_diarias (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    fecha DATE,
+    total_productos INT,
+    total_clientes INT,
+    total_empresas INT
+);
+
+CREATE TABLE notificaciones_empresa (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_id VARCHAR(20),
+    mensaje TEXT,
+    fecha DATETIME,
+    CONSTRAINT FK_company_id_notificaciones_empresa FOREIGN KEY (company_id) REFERENCES companies(id)
+);
+
+CREATE TABLE log_acciones (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    accion VARCHAR(20) NOT NULL,
+    tabla_afectada VARCHAR(30) NOT NULL,
+    id_registro INT NOT NULL,
+    descripcion TEXT,
+    usuario_id INT,
+    fecha DATETIME NOT NULL,
+    ip_origen VARCHAR(45)
+);
+
+CREATE TABLE category_default_units (
+    category_id INT NOT NULL,
+    unit_id INT NOT NULL,
+    PRIMARY KEY (category_id),
+    CONSTRAINT FK_category_id_category_default_units FOREIGN KEY (category_id) REFERENCES categories(id),
+    CONSTRAINT FK_unit_id_category_default_units FOREIGN KEY (unit_id) REFERENCES unitofmeasure(id)
+);
+
 SHOW TABLES;
 ```
 
@@ -1309,6 +1346,302 @@ WHERE c.msisactive = TRUE AND c.id NOT IN (SELECT DISTINCT customer_id FROM favo
 ## Funciones Agregadas
 
 ```sql
+
+-- Funcion Agregada 1
+
+SELECT 
+    p.id AS producto_id,
+    p.name AS nombre_producto,
+    ROUND(AVG(qp.rating), 2) AS promedio_calificacion,
+    COUNT(qp.rating) AS total_calificaciones
+FROM 
+    products p
+LEFT JOIN 
+    quality_products qp ON p.id = qp.product_id
+GROUP BY 
+    p.id, p.name
+ORDER BY 
+    promedio_calificacion DESC;
+
+-- Funcion Agregada 2
+
+SELECT c.id AS Cliente_ID, c.name AS Cliente, COUNT(DISTINCT qp.product_id) AS Productos_Calificados
+FROM customers c
+LEFT JOIN quality_products qp ON c.id = qp.customer_id
+GROUP BY c.id, c.name
+ORDER BY Productos_Calificados DESC;
+
+-- Funcion Agregada 3
+
+SELECT a.id AS audiencia_id, a.description AS tipo_audiencia, COUNT(ab.benefit_id) AS total_beneficios
+FROM audiences a
+LEFT JOIN audiencebenefits ab ON a.id = ab.audience_id
+GROUP BY a.id, a.description
+ORDER BY total_beneficios DESC;
+
+-- Funcion Agregada 4
+
+SELECT 
+    AVG(productos_por_empresa) AS media_productos_empresa
+FROM (
+    SELECT 
+        company_id,
+        COUNT(product_id) AS productos_por_empresa
+    FROM 
+        companyproducts
+    GROUP BY 
+        company_id
+) AS conteo_productos;
+
+-- Funcion Agregada 5
+
+SELECT 
+    cm.name AS ciudad,
+    COUNT(c.id) AS total_empresas
+FROM 
+    companies c
+JOIN 
+    citiesormunicipalities cm ON c.city_id = cm.code
+GROUP BY 
+    cm.name
+ORDER BY 
+    total_empresas DESC;
+
+-- Funcion Agregada 6
+
+SELECT 
+    um.id AS unidad_id,
+    um.description AS unidad_medida,
+    ROUND(AVG(cp.price), 2) AS precio_promedio
+FROM 
+    companyproducts cp
+JOIN 
+    unitofmeasure um ON cp.unitmeasure_id = um.id
+GROUP BY 
+    um.id, um.description
+ORDER BY 
+    precio_promedio DESC;
+
+-- Funcion Agregada 7
+
+SELECT 
+    cm.name AS ciudad,
+    COUNT(c.id) AS total_clientes
+FROM 
+    customers c
+JOIN 
+    citiesormunicipalities cm ON c.city_id = cm.code
+GROUP BY 
+    cm.name
+ORDER BY 
+    total_clientes DESC;
+
+-- Funcion Agregada 8
+
+SELECT 
+    p.name AS periodo,
+    COUNT(mp.membership_id) AS total_planes
+FROM 
+    membershipperiods mp
+JOIN 
+    periods p ON mp.period_id = p.id
+GROUP BY 
+    p.name
+ORDER BY 
+    total_planes DESC;
+
+-- Funcion Agregada 9
+
+SELECT 
+    c.id AS cliente_id,
+    c.name AS nombre_cliente,
+    ROUND(AVG(qp.rating), 2) AS promedio_calificaciones_favoritos
+FROM 
+    customers c
+JOIN 
+    favorites f ON c.id = f.customer_id
+JOIN 
+    quality_products qp ON f.product_id = qp.product_id AND c.id = qp.customer_id
+GROUP BY 
+    c.id, c.name
+ORDER BY 
+    promedio_calificaciones_favoritos DESC;
+
+-- Funcion Agregada 10
+
+SELECT 
+    p.id AS producto_id,
+    p.name AS nombre_producto,
+    MAX(qp.daterating) AS ultima_calificacion
+FROM 
+    products p
+LEFT JOIN 
+    quality_products qp ON p.id = qp.product_id
+GROUP BY 
+    p.id, p.name
+ORDER BY 
+    ultima_calificacion DESC;
+
+-- Funcion Agregada 11
+
+SELECT 
+    cat.id AS categoria_id,
+    cat.description AS categoria,
+    ROUND(STDDEV(cp.price), 2) AS desviacion_precios
+FROM 
+    companyproducts cp
+JOIN 
+    products p ON cp.product_id = p.id
+JOIN 
+    categories cat ON p.category_id = cat.id
+GROUP BY 
+    cat.id, cat.description
+ORDER BY 
+    desviacion_precios DESC;
+
+-- Funcion Agregada 12
+
+SELECT 
+    p.id AS producto_id,
+    p.name AS nombre_producto,
+    COUNT(DISTINCT f.customer_id) AS veces_favorito
+FROM 
+    products p
+JOIN 
+    details_favorites df ON p.id = df.product_id
+JOIN 
+    favorites f ON df.favorite_id = f.id
+GROUP BY 
+    p.id, p.name
+ORDER BY 
+    veces_favorito DESC;
+
+-- Funcion Agregada 13
+
+SELECT 
+    c.id AS categoria_id,
+    c.description AS categoria,
+    COUNT(DISTINCT p.id) AS total_productos,
+    COUNT(DISTINCT qp.product_id) AS productos_evaluados,
+    ROUND(
+        (COUNT(DISTINCT qp.product_id) * 100.0 / 
+        NULLIF(COUNT(DISTINCT p.id), 0)), 
+        2
+    ) AS porcentaje_evaluados
+FROM 
+    categories c
+LEFT JOIN 
+    products p ON c.id = p.category_id
+LEFT JOIN 
+    quality_products qp ON p.id = qp.product_id
+GROUP BY 
+    c.id, c.description
+ORDER BY 
+    porcentaje_evaluados DESC;
+
+-- Funcion Agregada 14
+
+SELECT 
+    poll.id AS encuesta_id,
+    poll.name AS nombre_encuesta,
+    ROUND(AVG(qp.rating), 2) AS promedio_rating
+FROM 
+    polls poll
+JOIN 
+    quality_products qp ON poll.id = qp.poll_id
+GROUP BY 
+    poll.id, poll.name
+ORDER BY 
+    promedio_rating DESC;
+
+-- Funcion Agregada 15
+
+SELECT 
+    m.id AS membresia_id,
+    m.name AS nombre_membresia,
+    COUNT(mb.benefit_id) AS total_beneficios
+FROM 
+    memberships m
+LEFT JOIN 
+    membershipbenefits mb ON m.id = mb.membership_id
+GROUP BY 
+    m.id, m.name
+ORDER BY 
+    total_beneficios DESC;
+
+-- Funcion Agregada 16
+
+SELECT 
+    c.id AS empresa_id,
+    c.name AS nombre_empresa,
+    ROUND(AVG(cp.price), 2) AS precio_promedio,
+    ROUND(VARIANCE(cp.price), 2) AS varianza_precios
+FROM 
+    companies c
+JOIN 
+    companyproducts cp ON c.id = cp.company_id
+GROUP BY 
+    c.id, c.name
+ORDER BY 
+    varianza_precios DESC;
+
+-- Funcion Agregada 17
+
+SELECT 
+    cm.name AS ciudad,
+    COUNT(DISTINCT cp.product_id) AS productos_disponibles
+FROM 
+    companies c
+JOIN 
+    citiesormunicipalities cm ON c.city_id = cm.code
+JOIN 
+    companyproducts cp ON c.id = cp.company_id
+GROUP BY 
+    cm.name
+ORDER BY 
+    productos_disponibles DESC;
+
+-- Funcion Agregada 18
+
+SELECT 
+    c.type_id AS tipo_empresa,
+    COUNT(DISTINCT cp.product_id) AS productos_unicos
+FROM 
+    companies c
+JOIN 
+    companyproducts cp ON c.id = cp.company_id
+GROUP BY 
+    c.type_id
+ORDER BY 
+    productos_unicos DESC;
+
+-- Funcion Agregada 19
+
+SELECT 
+    COUNT(*) AS clientes_sin_email
+FROM 
+    customers
+WHERE 
+    email IS NULL OR email = '';
+
+-- Funcion Agregada 20
+
+SELECT 
+    c.id AS empresa_id,
+    c.name AS nombre_empresa,
+    COUNT(DISTINCT qp.product_id) AS productos_calificados
+FROM 
+    companies c
+JOIN 
+    companyproducts cp ON c.id = cp.company_id
+JOIN 
+    quality_products qp ON cp.product_id = qp.product_id
+GROUP BY 
+    c.id, c.name
+ORDER BY 
+    productos_calificados DESC
+LIMIT 1;
+
 ```
 
 
@@ -1916,6 +2249,378 @@ DELIMITER ;
 ## Events (Eventos Programados..Usar procedimientos o funciones para cada evento)
 
 ```sql
+
+-- EVENT 1
+
+DELIMITER $$
+CREATE EVENT ev_limpiar_productos_inactivos
+ON SCHEDULE EVERY 6 MONTH
+DO
+BEGIN
+    DELETE FROM products
+    WHERE id NOT IN (SELECT product_id FROM companyproducts)
+    AND id NOT IN (SELECT product_id FROM quality_products)
+    AND id NOT IN (SELECT product_id FROM favorites);
+END $$
+DELIMITER ;
+
+-- EVENT 2
+
+DELIMITER $$
+CREATE EVENT ev_actualizar_promedios
+ON SCHEDULE EVERY 1 WEEK
+DO
+BEGIN
+    UPDATE products p
+    SET average_rating = (
+        SELECT IFNULL(AVG(rating), 0)
+        FROM quality_products
+        WHERE product_id = p.id
+    );
+END $$
+DELIMITER ;
+
+-- EVENT 3
+
+DELIMITER $$
+CREATE EVENT ev_ajustar_precios_inflacion
+ON SCHEDULE EVERY 1 MONTH
+DO
+BEGIN
+    DECLARE factor DECIMAL(10,2) DEFAULT 1.03;
+    
+    UPDATE companyproducts
+    SET price = ROUND(price * factor, 2);
+END $$
+DELIMITER ;
+
+-- EVENT 4
+
+DELIMITER $$
+CREATE EVENT ev_backup_diario
+ON SCHEDULE EVERY 1 DAY STARTS CURRENT_DATE + INTERVAL 1 DAY + INTERVAL 0 HOUR
+DO
+BEGIN
+    TRUNCATE TABLE products_backup;
+    INSERT INTO products_backup
+    SELECT * FROM products;
+    TRUNCATE TABLE quality_products_backup;
+    INSERT INTO quality_products_backup
+    SELECT * FROM quality_products;
+    INSERT INTO log_backups (operacion, fecha)
+    VALUES ('Backup diario completado', NOW());
+END $$
+DELIMITER ;
+
+-- EVENT 5
+
+DELIMITER $$
+CREATE EVENT ev_recordar_calificaciones_pendientes
+ON SCHEDULE EVERY 1 WEEK
+DO
+BEGIN
+    INSERT INTO user_reminders (user_id, product_id, reminder_date)
+    SELECT 
+        f.customer_id,
+        p.id,
+        NOW()
+    FROM favorites f
+    JOIN products p ON f.product_id = p.id
+    LEFT JOIN quality_products qp ON p.id = qp.product_id AND f.customer_id = qp.customer_id
+    WHERE qp.id IS NULL;
+END $$
+DELIMITER ;
+
+-- EVENT 6
+
+DELIMITER $$
+CREATE EVENT ev_revisar_inconsistencias
+ON SCHEDULE EVERY 1 WEEK STARTS TIMESTAMP(CURRENT_DATE, '02:00:00') + INTERVAL (6 - WEEKDAY(CURRENT_DATE)) DAY
+DO
+BEGIN
+    INSERT INTO errores_log (tipo, descripcion, fecha)
+    SELECT 'Producto sin empresa', CONCAT('Producto ID ', p.id, ' sin empresa asociada'), NOW()
+    FROM products p
+    LEFT JOIN companyproducts cp ON p.id = cp.product_id
+    WHERE cp.id IS NULL;
+    INSERT INTO errores_log (tipo, descripcion, fecha)
+    SELECT 'Empresa sin productos', CONCAT('Empresa ID ', c.id, ' sin productos asociados'), NOW()
+    FROM companies c
+    LEFT JOIN companyproducts cp ON c.id = cp.company_id
+    WHERE cp.id IS NULL;
+END $$
+DELIMITER ;
+
+-- EVENT 7
+
+DELIMITER $$
+CREATE EVENT ev_archivar_membresias_vencidas
+ON SCHEDULE EVERY 1 DAY
+DO
+BEGIN
+    UPDATE membershipperiods
+    SET status = 'INACTIVA'
+    WHERE end_date < CURDATE() AND status != 'INACTIVA';
+END $$
+DELIMITER ;
+
+-- EVENT 8
+
+DELIMITER $$
+CREATE EVENT ev_notificar_beneficios_nuevos
+ON SCHEDULE EVERY 1 WEEK
+DO
+BEGIN
+    INSERT INTO notificaciones (usuario_id, mensaje, fecha)
+    SELECT c.id, CONCAT('Nuevo beneficio disponible: ', b.descriptions), NOW()
+    FROM benefits b
+    CROSS JOIN customers c
+    WHERE b.created_at >= NOW() - INTERVAL 7 DAY;
+END $$
+DELIMITER ;
+
+-- EVENT 9
+
+DELIMITER $$
+CREATE EVENT ev_resumen_favoritos_mensual
+ON SCHEDULE EVERY 1 MONTH
+DO
+BEGIN
+    INSERT INTO favoritos_resumen (customer_id, total_favoritos, mes)
+    SELECT 
+        customer_id,
+        COUNT(*) AS total_favoritos,
+        DATE_FORMAT(NOW(), '%Y-%m') AS mes
+    FROM 
+        favorites
+    GROUP BY 
+        customer_id;
+END $$
+DELIMITER ;
+
+-- EVENT 10
+
+DELIMITER $$
+CREATE EVENT ev_validar_claves_foraneas
+ON SCHEDULE EVERY 1 WEEK
+DO
+BEGIN
+    INSERT INTO inconsistencias_fk (tabla, campo, id_registro, fecha)
+    SELECT 'quality_products', 'product_id', qp.id, NOW()
+    FROM quality_products qp
+    LEFT JOIN products p ON qp.product_id = p.id
+    WHERE p.id IS NULL;
+END $$
+DELIMITER ;
+
+-- EVENT 11
+
+DELIMITER $$
+CREATE EVENT ev_limpiar_calificaciones_invalidas
+ON SCHEDULE EVERY 1 MONTH
+DO
+BEGIN
+    DELETE FROM quality_products
+    WHERE (rating IS NULL OR rating < 0)
+    AND daterating < NOW() - INTERVAL 3 MONTH;
+END $$
+DELIMITER ;
+
+-- EVENT 12
+
+DELIMITER $$
+CREATE EVENT ev_desactivar_encuestas_inactivas
+ON SCHEDULE EVERY 1 MONTH
+DO
+BEGIN
+    UPDATE polls p
+    SET isactive = FALSE
+    WHERE isactive = TRUE
+    AND NOT EXISTS (
+        SELECT 1 FROM quality_products 
+        WHERE poll_id = p.id AND daterating > NOW() - INTERVAL 6 MONTH
+    );
+END $$
+DELIMITER ;
+
+-- EVENT 13
+
+DELIMITER $$
+CREATE EVENT ev_auditoria_diaria
+ON SCHEDULE EVERY 1 DAY
+DO
+BEGIN
+    INSERT INTO auditorias_diarias (fecha, total_productos, total_clientes, total_empresas)
+    SELECT CURDATE(), (SELECT COUNT(*) FROM products), (SELECT COUNT(*) FROM customers), (SELECT COUNT(*) FROM companies);
+END $$
+DELIMITER ;
+
+-- EVENT 14
+
+DELIMITER $$
+CREATE EVENT ev_notificar_metricas_calidad
+ON SCHEDULE 
+    EVERY 1 WEEK 
+    STARTS TIMESTAMP(
+        CURRENT_DATE + INTERVAL (7 - WEEKDAY(CURRENT_DATE)) DAY, 
+        '08:00:00'
+    )
+DO
+BEGIN
+    SET @table_exists = (SELECT COUNT(*) FROM information_schema.tables 
+                        WHERE table_schema = DATABASE() 
+                        AND table_name = 'notificaciones_empresa');
+    
+    IF @table_exists > 0 THEN
+        INSERT INTO notificaciones_empresa (
+            company_id,
+            mensaje,
+            fecha,
+            promedio_calidad
+        )
+        SELECT 
+            qp.company_id,
+            CONCAT('Su promedio de calidad esta semana es: ', ROUND(AVG(qp.rating), 2)),
+            NOW(),
+            ROUND(AVG(qp.rating), 2)
+        FROM 
+            quality_products qp
+        WHERE 
+            qp.daterating >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+        GROUP BY 
+            qp.company_id;
+        INSERT INTO log_eventos (evento, registros_afectados, fecha)
+        VALUES (
+            'Notificación métricas calidad',
+            ROW_COUNT(),
+            NOW()
+        );
+    END IF;
+END $$
+DELIMITER ;
+
+-- EVENT 15
+
+DELIMITER $$
+CREATE EVENT ev_recordar_renovacion_membresias
+ON SCHEDULE EVERY 1 DAY
+DO
+BEGIN
+    INSERT INTO recordatorios (customer_id, mensaje, fecha)
+    SELECT m.customer_id, CONCAT('Tu membresía vence en ', DATEDIFF(m.end_date, CURDATE()), ' días'), NOW()
+    FROM membershipperiods m
+    WHERE m.end_date BETWEEN CURDATE() AND CURDATE() + INTERVAL 7 DAY;
+END $$
+DELIMITER ;
+
+-- EVENT 16
+
+DELIMITER $$
+CREATE EVENT ev_actualizar_estadisticas
+ON SCHEDULE EVERY 1 WEEK
+DO
+BEGIN
+    REPLACE INTO estadisticas (id, total_productos_activos, total_clientes_activos, fecha_actualizacion
+    )
+    VALUES (
+        1,
+        (SELECT COUNT(*) FROM products WHERE is_active = TRUE),
+        (SELECT COUNT(*) FROM customers WHERE msisactive = TRUE),
+        NOW()
+    );
+END $$
+DELIMITER ;
+
+-- EVENT 17
+
+DELIMITER $$
+CREATE EVENT ev_resumen_categorias
+ON SCHEDULE EVERY 1 MONTH
+DO
+BEGIN
+    INSERT INTO resumen_categorias (
+        categoria_id,
+        total_productos,
+        promedio_calificacion,
+        periodo
+    )
+    SELECT 
+        p.category_id,
+        COUNT(DISTINCT p.id),
+        IFNULL(AVG(qp.rating), 0),
+        DATE_FORMAT(NOW(), '%Y-%m')
+    FROM 
+        products p
+    LEFT JOIN 
+        quality_products qp ON p.id = qp.product_id
+    GROUP BY 
+        p.category_id;
+END $$
+DELIMITER ;
+
+-- EVENT 18
+
+DELIMITER $$
+CREATE EVENT ev_actualizar_beneficios_expirados
+ON SCHEDULE EVERY 1 DAY
+DO
+BEGIN
+    UPDATE benefits
+    SET is_active = FALSE
+    WHERE expires_at < CURDATE()
+    AND is_active = TRUE;
+END $$
+DELIMITER ;
+
+-- EVENT 19
+
+DELIMITER $$
+CREATE EVENT ev_alertar_productos_sin_evaluacion
+ON SCHEDULE EVERY 1 MONTH
+DO
+BEGIN
+    INSERT INTO alertas_productos (
+        product_id,
+        ultima_evaluacion,
+        mensaje,
+        fecha_alerta
+    )
+    SELECT 
+        p.id,
+        MAX(qp.daterating),
+        'Este producto no ha sido evaluado en más de 1 año',
+        NOW()
+    FROM 
+        products p
+    LEFT JOIN 
+        quality_products qp ON p.id = qp.product_id
+    GROUP BY 
+        p.id
+    HAVING 
+        MAX(qp.daterating) < NOW() - INTERVAL 1 YEAR
+        OR MAX(qp.daterating) IS NULL;
+END $$
+DELIMITER ;
+
+-- EVENT 20
+
+DELIMITER $$
+CREATE EVENT ev_ajustar_precios_indice
+ON SCHEDULE EVERY 1 MONTH
+DO
+BEGIN
+    DECLARE factor_ajuste DECIMAL(10,4);
+    SELECT valor INTO factor_ajuste
+    FROM inflacion_indice
+    ORDER BY fecha DESC
+    LIMIT 1;
+    UPDATE companyproducts cp
+    JOIN products p ON cp.product_id = p.id
+    SET cp.price = ROUND(cp.price * (1 + (factor_ajuste/100)), 2)
+    WHERE p.is_active = TRUE;
+END $$
+DELIMITER ;
+
 ```
 
 
@@ -2088,5 +2793,414 @@ JOIN companies co ON cp.company_id = co.id;
 ## Historias de Usuario con Funciones Definidas por el Usuario (UDF)
 
 ```sql
+
+-- UDF 1
+
+DELIMITER $$
+CREATE FUNCTION calcular_promedio_ponderado(pid INT)
+RETURNS DOUBLE
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE promedio DOUBLE;
+    SELECT 
+        SUM(rating * (1 / (1 + DATEDIFF(CURDATE(), DATE(daterating))))) / 
+        SUM(1 / (1 + DATEDIFF(CURDATE(), DATE(daterating))))
+    INTO promedio
+    FROM quality_products
+    WHERE product_id = pid;
+    RETURN IFNULL(promedio, 0);
+END $$
+
+DELIMITER ;
+
+-- UDF 2
+
+DELIMITER $$
+CREATE FUNCTION es_calificacion_reciente(fecha DATETIME)
+RETURNS BOOLEAN
+DETERMINISTIC
+BEGIN
+    RETURN fecha >= CURDATE() - INTERVAL 30 DAY;
+END $$
+DELIMITER ;
+
+-- UDF 3
+
+DELIMITER $$
+
+CREATE FUNCTION obtener_empresa_producto(producto_id INT)
+RETURNS VARCHAR(80)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE nombre_empresa VARCHAR(80);
+    SELECT c.name
+    INTO nombre_empresa
+    FROM companies c
+    JOIN companyproducts cp ON c.id = cp.company_id
+    WHERE cp.product_id = producto_id
+    LIMIT 1;
+    RETURN nombre_empresa;
+END $$
+DELIMITER ;
+
+-- UDF 4
+
+DELIMITER $$
+CREATE FUNCTION tiene_membresia_activa(customer_id INT)
+RETURNS BOOLEAN
+DETERMINISTIC 
+READS SQL DATA 
+BEGIN 
+    DECLARE existe INT;
+    SELECT COUNT(*) INTO existe
+    FROM customers_memberships 
+    WHERE customer_id
+        AND CURDATE() BETWEEN start_date AND end_date;
+    RETURN existe > 0;
+END $$
+DELIMITER ;
+
+-- UDF 5
+
+DELIMITER $$
+CREATE FUNCTION ciudad_supera_empresas(cid VARCHAR(15), limite INT)
+RETURNS BOOLEAN
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE total INT;
+    SELECT COUNT(*) INTO total
+    FROM companies
+    WHERE city_id = cid;
+
+    IF total > limite THEN
+        RETURN TRUE;
+    ELSE
+        RETURN FALSE;
+    END IF;
+END  $$
+DELIMITER ;
+
+-- UDF 6
+
+DELIMITER $$
+CREATE FUNCTION descripcion_calificacion(valor DOUBLE)
+RETURNS VARCHAR(20)
+DETERMINISTIC
+BEGIN
+    DECLARE calificacion VARCHAR(20);
+    IF valor >= 5 THEN 
+        SET calificacion = 'Excelente';
+    ELSEIF valor = 4 THEN
+        SET calificacion = 'Bueno';
+    ELSEIF valor = 3 THEN
+        SET calificacion = 'Regular';
+    ELSEIF valor = 2 THEN
+        SET calificacion = 'Mala';
+    ELSE 
+        SET calificacion = 'Muy mala';
+    END IF;
+    RETURN calificacion;
+END $$
+DELIMITER ;
+
+-- UDF 7
+
+DELIMITER $$
+CREATE FUNCTION estado_producto(product_id INT)
+RETURNS VARCHAR(15)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE promedio DOUBLE;
+    DECLARE estado VARCHAR(15);
+    SELECT AVG(rating) INTO promedio
+    FROM quality_products
+    WHERE product_id ;
+    IF promedio IS NULL THEN
+        SET estado = 'Sin datos';
+    ELSEIF promedio < 3 THEN
+        SET estado = 'Crítico';
+    ELSEIF promedio < 4 THEN
+        SET estado = 'Aceptable';
+    ELSE
+        SET estado = 'Óptimo';
+    END IF;
+    RETURN estado;
+END $$
+DELIMITER ;
+
+-- UDF 8
+
+DELIMITER $$
+CREATE FUNCTION es_favorito(cid INT, pid INT)
+RETURNS BOOLEAN
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE existe INT;
+    SELECT COUNT(*) INTO existe
+    FROM favorites AS f
+    JOIN details_favorites AS df ON f.id = df.favorite_id
+    WHERE f.customer_id = cid
+      AND df.product_id = pid;
+    RETURN existe > 0;
+END $$
+DELIMITER ;
+
+-- UDF 9
+
+DELIMITER $$
+CREATE FUNCTION beneficio_asignado_audiencia(benefit_id INT, audience_id INT)
+RETURNS BOOLEAN
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE existe INT;
+    SELECT COUNT(*) INTO existe
+    FROM audiencebenefits
+    WHERE benefit_id 
+      AND audience_id ;
+    RETURN existe > 0;
+END $$
+DELIMITER ;
+
+-- UDF 10
+
+DELIMITER $$
+CREATE FUNCTION fecha_en_membresia(fecha DATE, cid INT)
+RETURNS BOOLEAN
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE existe INT;
+    SELECT COUNT(*) INTO existe
+    FROM customers_memberships
+    WHERE customer_id = cid
+      AND fecha BETWEEN start_date AND end_date;
+    RETURN existe > 0;
+END $$
+DELIMITER ;
+
+-- UDF 11
+
+DELIMITER $$
+CREATE FUNCTION porcentaje_positivas(product_id INT)
+RETURNS DOUBLE
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE total INT DEFAULT 0;
+    DECLARE positivas INT DEFAULT 0;
+    DECLARE porcentaje DOUBLE;
+    SELECT COUNT(*) INTO total
+    FROM quality_products
+    WHERE product_id;
+    IF total = 0 THEN
+        RETURN 0;
+    END IF;
+    SELECT COUNT(*) INTO positivas
+    FROM quality_products
+    WHERE product_id  AND rating >= 4;
+    SET porcentaje = (positivas * 100.0) / total;
+    RETURN porcentaje;
+END $$
+DELIMITER ;
+
+-- UDF 12
+
+DELIMITER $$
+CREATE FUNCTION edad_calificacion(rate_id INT)
+RETURNS INT
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE fecha_calificacion DATETIME;
+    DECLARE edad INT;
+    SELECT daterating INTO fecha_calificacion
+    FROM rates
+    WHERE customer_id = rate_id;
+    SET edad = DATEDIFF(CURRENT_DATE, fecha_calificacion);
+    RETURN edad;
+END $$
+DELIMITER ;
+
+-- UDF 13
+
+DELIMITER $$
+CREATE FUNCTION productos_por_empresa(company_id VARCHAR(20))
+RETURNS INT
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE total_productos INT;
+    SELECT COUNT(DISTINCT product_id) INTO total_productos
+    FROM companyproducts
+    WHERE company_id = company_id;
+    RETURN total_productos;
+END $$
+DELIMITER ;
+
+-- UDF 14
+
+DELIMITER $$
+CREATE FUNCTION nivel_actividad(cliente_id INT)
+RETURNS VARCHAR(20)
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE num_calificaciones INT;
+    SELECT COUNT(*) INTO num_calificaciones
+    FROM rates
+    WHERE customer_id = cliente_id;
+    IF num_calificaciones > 10 THEN
+        RETURN 'Frecuente';
+    ELSEIF num_calificaciones BETWEEN 4 AND 10 THEN
+        RETURN 'Esporádico';
+    ELSE
+        RETURN 'Inactivo';
+    END IF;
+END $$
+DELIMITER ;
+
+-- UDF 15
+
+DELIMITER $$
+CREATE FUNCTION precio_promedio_ponderado(product_id INT)
+RETURNS DOUBLE
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE total_ponderado DOUBLE;
+    DECLARE total_favoritos INT;
+    DECLARE precio DOUBLE;
+    SELECT price INTO precio
+    FROM companyproducts
+    WHERE product_id = product_id
+    LIMIT 1;  
+    IF precio IS NULL THEN
+        RETURN 0;
+    END IF;
+    SELECT COUNT(*) INTO total_favoritos
+    FROM details_favorites
+    WHERE product_id = product_id;
+    SET total_ponderado = precio * total_favoritos;
+    IF total_favoritos > 0 THEN
+        RETURN total_ponderado / total_favoritos;
+    ELSE
+        RETURN 0;
+    END IF;
+END $$
+DELIMITER ;
+
+-- UDF 16 
+
+DELIMITER $$
+CREATE FUNCTION beneficio_asignado_multiple(benefit_id INT)
+RETURNS BOOLEAN
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE total_asignaciones INT;
+    SELECT COUNT(*) INTO total_asignaciones
+    FROM (
+        SELECT audience_id FROM audiencebenefits WHERE benefit_id = benefit_id
+        UNION
+        SELECT membership_id FROM membershipbenefits WHERE benefit_id = benefit_id
+    ) AS asignaciones;
+    IF total_asignaciones > 1 THEN
+        RETURN TRUE;
+    ELSE
+        RETURN FALSE;
+    END IF;
+END $$
+DELIMITER ;
+
+-- UDF 17
+
+DELIMITER $$
+CREATE FUNCTION indice_variedad(city_id VARCHAR(15))
+RETURNS DOUBLE
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE num_empresas INT;
+    DECLARE num_productos INT;
+    SELECT COUNT(DISTINCT cp.company_id) 
+    INTO num_empresas
+    FROM companies c
+    JOIN companyproducts cp ON c.id = cp.company_id
+    WHERE c.city_id = city_id;
+    SELECT COUNT(DISTINCT cp.product_id)
+    INTO num_productos
+    FROM companies c
+    JOIN companyproducts cp ON c.id = cp.company_id
+    WHERE c.city_id = city_id;
+    IF num_empresas > 0 THEN
+        RETURN num_productos / num_empresas;
+    ELSE
+        RETURN 0;
+    END IF;
+END $$
+DELIMITER ;
+
+-- UDF 18
+
+DELIMITER $$
+CREATE FUNCTION evaluar_desactivacion_producto(product_id INT)
+RETURNS BOOLEAN
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE promedio_calificacion DOUBLE;
+    DECLARE umbral DOUBLE DEFAULT 3.0;
+    SELECT AVG(rating) INTO promedio_calificacion
+    FROM rates
+    WHERE product_id = product_id;
+    IF promedio_calificacion < umbral THEN
+        RETURN TRUE; 
+    ELSE
+        RETURN FALSE; 
+    END IF;
+END $$
+DELIMITER ;
+
+-- UDF 19
+
+DELIMITER $$
+CREATE FUNCTION indice_popularidad_producto(product_id INT)
+RETURNS DOUBLE
+DETERMINISTIC
+READS SQL DATA
+BEGIN
+    DECLARE num_favoritos INT;
+    DECLARE promedio_calificacion DOUBLE;
+    DECLARE peso_favoritos DOUBLE DEFAULT 0.5;
+    DECLARE peso_calificacion DOUBLE DEFAULT 0.5; 
+    SELECT COUNT(*) INTO num_favoritos
+    FROM details_favorites
+    WHERE product_id = product_id;
+    SELECT AVG(rating) INTO promedio_calificacion
+    FROM rates
+    WHERE product_id = product_id;
+    RETURN (num_favoritos * peso_favoritos) + (promedio_calificacion * peso_calificacion);
+END $$
+DELIMITER ;
+
+-- UDF 20
+
+DELIMITER $$
+CREATE FUNCTION generar_codigo_producto(product_name VARCHAR(255), created_at DATETIME)
+RETURNS VARCHAR(255)
+DETERMINISTIC
+BEGIN
+    DECLARE code VARCHAR(255);
+    SET code = CONCAT(product_name, '-', DATE_FORMAT(created_at, '%Y%m%d%H%i%s'));
+    RETURN MD5(code);
+END $$
+DELIMITER ;
+
 ```
 
